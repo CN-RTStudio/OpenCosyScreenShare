@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no" />
+  <title>Cosy 传屏 - 接收端</title>
+  <link rel="stylesheet" href="styles.css" />
+  <style>
+    #debugLog {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(0,0,0,0.85);
+      color: #0f0;
+      font-family: monospace;
+      font-size: 12px;
+      padding: 8px;
+      overflow-y: auto;
+      z-index: 99999;
+      white-space: pre-wrap;
+      word-break: break-all;
+      display: none;
+    }
+    #debugToggle {
+      position: fixed;
+      top: 0;
+      right: 0;
+      width: 60px;
+      height: 40px;
+      z-index: 100000;
+    }
+    .version-label {
+      position: fixed;
+      bottom: 8px;
+      right: 12px;
+      font-size: 11px;
+      color: rgba(255,255,255,0.38);
+      font-family: Roboto, sans-serif;
+      z-index: 9999;
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <!-- 调试日志触发区 -->
+  <div id="debugToggle"></div>
+
+  <!-- 调试日志显示 -->
+  <div id="debugLog"></div>
+
+  <!-- Main view -->
+  <div id="mainView" class="view active">
+    <div class="app-bar">
+      <span class="app-title">Cosy 传屏</span>
+    </div>
+
+    <div class="container">
+      <div class="card">
+        <div class="card-header">
+          <div class="logo">
+            <svg viewBox="0 0 24 24" width="48" height="48"><path fill="#3F51B5" d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14zM5 15h6v2H5z"/></svg>
+          </div>
+          <h1 class="headline">准备接收</h1>
+          <p class="subhead">将此传屏码分享给发送端设备</p>
+        </div>
+
+        <div class="code-box" id="codeBox">
+          <span class="code-label">传屏码</span>
+          <div class="code-value" id="codeValue">
+            <span class="placeholder">正在生成...</span>
+          </div>
+        </div>
+
+        <div class="status-row">
+          <span class="status-dot" id="statusDot"></span>
+          <span class="status-text" id="statusText">等待连接</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Display view -->
+  <div id="displayView" class="view">
+    <video id="displayVideo" autoplay playsinline></video>
+    <div class="placeholder" id="placeholder">
+      <div class="icon">
+        <svg viewBox="0 0 24 24" width="72" height="72"><path fill="currentColor" d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14z"/></svg>
+      </div>
+      <div>等待画面传输...</div>
+    </div>
+  </div>
+
+  <!-- 版本标签 -->
+  <div class="version-label">OpenCSS 1.0</div>
+
+  <script>
+    // 前端日志显示函数
+    window._cosyLogs = [];
+    window._cosyLog = function(msg) {
+      var time = new Date().toLocaleTimeString();
+      var line = '[' + time + '] ' + msg;
+      window._cosyLogs.push(line);
+      var el = document.getElementById('debugLog');
+      if (el) {
+        el.textContent = window._cosyLogs.join('\n') + '\n';
+        el.scrollTop = el.scrollHeight;
+      }
+    };
+
+    // 捕获所有错误
+    window.addEventListener('error', function(e) {
+      window._cosyLog('JS错误: ' + e.message + ' @ ' + (e.filename||'') + ':' + (e.lineno||''));
+    });
+
+    window.addEventListener('unhandledrejection', function(e) {
+      window._cosyLog('Promise未捕获: ' + (e.reason && e.reason.message ? e.reason.message : e.reason));
+    });
+
+    window._cosyLog('HTML 已加载');
+
+    // 双击右上角切换日志显示
+    (function() {
+      var toggle = document.getElementById('debugToggle');
+      var logEl = document.getElementById('debugLog');
+      var lastTap = 0;
+      toggle.addEventListener('touchend', function() {
+        var now = Date.now();
+        if (now - lastTap < 400) {
+          logEl.style.display = logEl.style.display === 'block' ? 'none' : 'block';
+        }
+        lastTap = now;
+      });
+      toggle.addEventListener('dblclick', function() {
+        logEl.style.display = logEl.style.display === 'block' ? 'none' : 'block';
+      });
+    })();
+  </script>
+  <script src="renderer.js"></script>
+</body>
+</html>

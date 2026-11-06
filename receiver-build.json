@@ -1,0 +1,30 @@
+{
+  "appId": "com.rtstu.screenshare.cosy.receiver",
+  "productName": "OpenCosyScreenShareReceiver",
+  "directories": {
+    "output": "dist/receiver"
+  },
+  "files": [
+    "receiver/**/*",
+    "package.json"
+  ],
+  "extraMetadata": {
+    "main": "receiver/main.js"
+  },
+  "electronDownload": {
+    "mirror": "https://npmmirror.com/mirrors/electron/"
+  },
+  "win": {
+    "target": [
+      "nsis",
+      "portable"
+    ],
+    "icon": "receiver/icon.png"
+  },
+  "nsis": {
+    "oneClick": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "shortcutName": "Cosy传屏-接收端"
+  }
+}

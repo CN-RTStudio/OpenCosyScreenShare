@@ -1,0 +1,11 @@
+{
+  "appId": "com.rtstu.screenshare.cosy.sender",
+  "appName": "Cosy传屏发送端",
+  "webDir": "www",
+  "server": {
+    "androidScheme": "https"
+  },
+  "android": {
+    "allowMixedContent": true
+  }
+}

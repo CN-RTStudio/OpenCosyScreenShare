@@ -1,0 +1,269 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Roboto', 'Segoe UI', Arial, sans-serif;
+  background: #fafafa;
+  color: #212121;
+  height: 100vh;
+  overflow: hidden;
+  user-select: none;
+}
+
+/* App bar */
+.app-bar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 56px;
+  background: #3F51B5;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+  z-index: 10;
+  -webkit-app-region: drag;
+}
+
+.app-title {
+  color: #fff;
+  font-size: 20px;
+  font-weight: 500;
+  letter-spacing: 0.5px;
+}
+
+/* Container */
+.container {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding-top: 56px;
+}
+
+/* Card */
+.card {
+  background: #fff;
+  border-radius: 8px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12), 0 1px 3px rgba(0, 0, 0, 0.08);
+  padding: 40px 48px;
+  width: 480px;
+  max-width: 90vw;
+  text-align: center;
+}
+
+.card-header {
+  margin-bottom: 32px;
+}
+
+.logo {
+  margin-bottom: 16px;
+}
+
+.headline {
+  font-size: 26px;
+  font-weight: 400;
+  color: #212121;
+  margin-bottom: 8px;
+}
+
+.subhead {
+  font-size: 14px;
+  color: #757575;
+  font-weight: 400;
+}
+
+/* Text field (MD2 floating label) */
+.form-group {
+  margin-bottom: 28px;
+}
+
+.input-wrapper {
+  position: relative;
+  margin-top: 8px;
+}
+
+.md-input {
+  width: 100%;
+  height: 56px;
+  border: none;
+  border-bottom: 1px solid #9E9E9E;
+  background: transparent;
+  font-size: 18px;
+  font-family: 'Consolas', 'Courier New', monospace;
+  color: #212121;
+  padding: 0 4px;
+  outline: none;
+  letter-spacing: 1px;
+}
+
+.md-input:focus {
+  border-bottom: 2px solid #3F51B5;
+}
+
+.md-label {
+  position: absolute;
+  left: 4px;
+  top: 18px;
+  font-size: 18px;
+  color: #9E9E9E;
+  pointer-events: none;
+  transition: all 0.2s ease;
+}
+
+.md-input:focus + .md-label,
+.md-input:not(:placeholder-shown) + .md-label {
+  top: -4px;
+  font-size: 12px;
+  color: #3F51B5;
+}
+
+.underline {
+  position: absolute;
+  bottom: 0;
+  left: 50%;
+  width: 0;
+  height: 2px;
+  background: #3F51B5;
+  transition: all 0.3s ease;
+}
+
+.md-input:focus ~ .underline {
+  left: 0;
+  width: 100%;
+}
+
+/* Raised button */
+.md-btn-raised {
+  width: 100%;
+  height: 44px;
+  background: #3F51B5;
+  color: #fff;
+  border-radius: 4px;
+  font-size: 15px;
+  box-shadow: 0 2px 4px rgba(63, 81, 181, 0.3);
+}
+
+.md-btn-raised:hover {
+  background: #303F9F;
+  box-shadow: 0 4px 8px rgba(63, 81, 181, 0.4);
+}
+
+.md-btn-raised:active {
+  background: #1A237E;
+  box-shadow: 0 1px 2px rgba(63, 81, 181, 0.3);
+}
+
+.md-btn-raised:disabled {
+  background: #C5CAE9;
+  box-shadow: none;
+  cursor: default;
+}
+
+/* Warning raised button (stop share) */
+.md-btn-warning {
+  background: #E53935;
+  color: #fff;
+  box-shadow: 0 2px 4px rgba(229, 57, 53, 0.3);
+  margin-top: 10px;
+}
+
+.md-btn-warning:hover {
+  background: #C62828;
+  box-shadow: 0 4px 8px rgba(229, 57, 53, 0.4);
+}
+
+.md-btn-warning:active {
+  background: #B71C1C;
+  box-shadow: 0 1px 2px rgba(229, 57, 53, 0.3);
+}
+
+/* Text button */
+.md-btn-text {
+  margin-top: 16px;
+  background: transparent;
+  color: #F44336;
+  font-size: 14px;
+  padding: 8px 16px;
+  border-radius: 4px;
+}
+
+.md-btn-text:hover {
+  background: rgba(244, 67, 54, 0.08);
+}
+
+/* Status */
+.status-row {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  margin-top: 24px;
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #BDBDBD;
+}
+
+.status-dot.connecting {
+  background: #FFC107;
+  animation: pulse 1.2s infinite;
+}
+
+.status-dot.connected {
+  background: #4CAF50;
+}
+
+.status-dot.error {
+  background: #F44336;
+}
+
+.status-text {
+  font-size: 13px;
+  color: #616161;
+}
+
+@keyframes pulse {
+  0% { opacity: 1; }
+  50% { opacity: 0.4; }
+  100% { opacity: 1; }
+}
+
+/* Buttons shared */
+.md-btn {
+  border: none;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  transition: background 0.2s, box-shadow 0.2s;
+}
+
+.md-btn-icon {
+  background: transparent;
+  color: #fff;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-app-region: no-drag;
+}
+
+.md-btn-icon:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+.hidden {
+  display: none;
+}

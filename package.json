@@ -1,0 +1,33 @@
+{
+  "name": "cosy-screen-share",
+  "version": "1.0.0",
+  "description": "OpenCosyScreenShare - Wireless screen sharing application",
+  "main": "receiver/main.js",
+  "scripts": {
+    "sender": "electron sender/main.js",
+    "receiver": "electron receiver/main.js",
+    "start:sender": "electron sender/main.js",
+    "start:receiver": "electron receiver/main.js",
+    "build:sender": "set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/&& set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/&& electron-builder --config sender-build.json",
+    "build:receiver": "set ELECTRON_MIRROR=https://npmmirror.com/mirrors/electron/&& set ELECTRON_BUILDER_BINARIES_MIRROR=https://npmmirror.com/mirrors/electron-builder-binaries/&& electron-builder --config receiver-build.json",
+    "build": "npm run build:sender && npm run build:receiver"
+  },
+  "keywords": [
+    "electron",
+    "screen-share",
+    "wireless"
+  ],
+  "author": "RTStudio",
+  "license": "Apache-2.0",
+  "build": {
+    "appId": "com.rtstu.screenshare.cosy",
+    "productName": "OpenCosyScreenShare",
+    "directories": {
+      "output": "dist"
+    }
+  },
+  "devDependencies": {
+    "electron": "^28.0.0",
+    "electron-builder": "^26.15.3"
+  }
+}

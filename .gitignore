@@ -1,0 +1,25 @@
+# Node
+node_modules/
+
+# Electron builder output
+dist/
+
+# Android build outputs
+android-sender/android/app/build/
+android-receiver/android/app/build/
+android-sender/android/.gradle/
+android-receiver/android/.gradle/
+android-sender/android/local.properties
+android-receiver/android/local.properties
+android-sender/android/capacitor-cordova-android-plugins/build/
+android-receiver/android/capacitor-cordova-android-plugins/build/
+android-receiver/node_modules/
+android-sender/node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+Thumbs.db
+.DS_Store

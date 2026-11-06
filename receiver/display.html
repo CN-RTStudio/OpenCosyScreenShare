@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>OpenCosyScreenShareDisplay</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #000;
+      width: 100vw;
+      height: 100vh;
+      overflow: hidden;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-family: 'Roboto', 'Segoe UI', Arial, sans-serif;
+    }
+    #displayVideo {
+      width: 100vw;
+      height: 100vh;
+      object-fit: contain;
+      display: none;
+    }
+    .placeholder {
+      color: #424242;
+      font-size: 24px;
+      font-weight: 300;
+      text-align: center;
+    }
+    .placeholder .icon {
+      margin-bottom: 16px;
+      opacity: 0.4;
+    }
+  </style>
+</head>
+<body>
+  <video id="displayVideo" autoplay></video>
+  <div class="placeholder" id="placeholder">
+    <div class="icon">
+      <svg viewBox="0 0 24 24" width="72" height="72"><path fill="currentColor" d="M21 3H3c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h18c1.1 0 2-.9 2-2V5c0-1.1-.9-2-2-2zm0 16H3V5h18v14z"/></svg>
+    </div>
+    <div>Screen sharing display ready</div>
+  </div>
+  <script src="display-renderer.js"></script>
+</body>
+</html>

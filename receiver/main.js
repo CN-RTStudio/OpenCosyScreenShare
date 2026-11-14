@@ -3,9 +3,16 @@ const dgram = require('dgram');
 const net = require('net');
 const path = require('path');
 const os = require('os');
+const guard = require('../sharingguard');
+const captureGuard = require('../captureguard');
 
 const TCP_PORT = 25555;
 const TCP_PORT_MAX = 25565;
+const SOCKET_IDLE_MS = 45000;
+const AUTH_DEADLINE_MS = 10000;
+const MAX_PENDING_SIGNALS = 32;
+const MAX_PENDING_SIGNAL_BYTES = 64 * 1024;
+const MAX_SESSIONS = 4;
 const DISCOVERY_PORT = 30001;
 const DISPLAY_WINDOW_TITLE = 'OpenCosyScreenShareDisplay';
 const SDK_VERSION = 3;
@@ -15,9 +22,11 @@ let mainWindow = null;
 let displayWindow = null;
 let displayWindowReady = false;
 let pendingSignals = [];
-let tcpServer = null;
+let pendingSignalBytes = 0;let tcpServer = null;
 let activeSocket = null;
+let liveSessions = 0;
 let shareCode = '';
+let localIp = '';
 
 // ---- UDP discovery: get local LAN IP via broadcast ----
 function discoverLocalIp() {
@@ -68,7 +77,12 @@ function getFallbackIp() {
 
 // ---- Code generation ----
 function generateCode(ip, port) {
-  const parts = ip.split('.').map((p) => parseInt(p, 10));
+  const parts = String(ip || '').split('.').map((p) => parseInt(p, 10));
+  if (parts.length !== 4) return '';
+  for (const n of parts) {
+    if (!Number.isInteger(n) || n < 0 || n > 255) return '';
+  }
+  if (!Number.isInteger(port) || port < 1 || port > 65535) return '';
   const hex = (n) => n.toString(16);
   return [
     hex(parts[0]),
@@ -80,47 +94,143 @@ function generateCode(ip, port) {
 }
 
 // ---- TCP server: handle handshake + signaling ----
+function isLocalPeer(peer) {
+  if (!peer) return false;
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family !== 'IPv4' || iface.internal) continue;
+      if (guard.sameSubnet(peer, iface.address, 0)) return true;
+    }
+  }
+  return false;
+}
+
+function rejectCtx(ctx) {
+  ctx.failed = true;
+  ctx.buffer = '';
+  try { ctx.socket.destroy(); } catch (e) {}
+}
+
+function dispatchLine(line, ctx, peer) {
+  if (ctx.failed) return;
+  if (line.length > guard.MAX_CONTROL_BYTES) {
+    rejectCtx(ctx);
+    return;
+  }
+  if (!ctx.admitted) {
+    if (!line.startsWith('AUTH:')) {
+      guard.noteFailure(ctx.state, Date.now());
+      rejectCtx(ctx);
+      return;
+    }
+    if (!isLocalPeer(peer)) {
+      rejectCtx(ctx);
+      return;
+    }
+    const admitted = guard.admitConnection(peer, localIp, shareCode, line.slice(5), ctx.state);
+    if (!admitted.ok) {
+      rejectCtx(ctx);
+      return;
+    }
+    if (activeSocket && activeSocket !== ctx.socket) {
+      rejectCtx(ctx);
+      return;
+    }
+    ctx.admitted = true;
+    activeSocket = ctx.socket;
+    ctx.socket.write('AUTH:OK\n');
+    return;
+  }
+  const allowed = guard.admitMessage(ctx.state, Date.now(), guard.FRAME_KIND.CONTROL);
+  if (!allowed.ok) {
+    rejectCtx(ctx);
+    return;
+  }
+  const frame = guard.validateFrame({ kind: guard.FRAME_KIND.CONTROL }, line.length);
+  if (!frame.ok) {
+    rejectCtx(ctx);
+    return;
+  }
+  handleMessage(line, ctx.socket);
+}
+
 function startTcpServer(ip) {
+  localIp = ip;
   let currentPort = TCP_PORT;
 
   function tryListen() {
     tcpServer = net.createServer((socket) => {
-      if (activeSocket) {
-        socket.end();
+      const peer = String(socket.remoteAddress || '').replace(/^::ffff:/, '');
+      if (liveSessions >= MAX_SESSIONS) {
+        try { socket.destroy(); } catch (e) {}
         return;
       }
-      activeSocket = socket;
-      let buffer = '';
+      liveSessions += 1;
+      socket.once('close', () => { liveSessions = Math.max(0, liveSessions - 1); });
+      const ctx = {
+        socket,
+        peer,
+        state: guard.createSessionState(Date.now()),
+        admitted: false,
+        failed: false,
+        buffer: ''
+      };
+
+      socket.setTimeout(SOCKET_IDLE_MS);
+      socket.on('timeout', () => {
+        ctx.failed = true;
+        try { socket.destroy(); } catch (e) {}
+      });
+
+      const authTimer = setTimeout(() => {
+        if (!ctx.admitted) {
+          ctx.failed = true;
+          try { socket.destroy(); } catch (e) {}
+        }
+      }, AUTH_DEADLINE_MS);
+      if (typeof authTimer.unref === 'function') authTimer.unref();
 
       socket.on('data', (data) => {
-        buffer += data.toString();
+        if (ctx.failed) return;
+        ctx.buffer += data.toString();
+        if (ctx.buffer.length > guard.MAX_CONTROL_BYTES) {
+          ctx.failed = true;
+          try { socket.destroy(); } catch (e) {}
+          return;
+        }
         let idx;
-        while ((idx = buffer.indexOf('\n')) !== -1) {
-          const line = buffer.slice(0, idx).trim();
-          buffer = buffer.slice(idx + 1);
-          handleMessage(line, socket);
+        while (!ctx.failed && (idx = ctx.buffer.indexOf('\n')) !== -1) {
+          const line = ctx.buffer.slice(0, idx).trim();
+          ctx.buffer = ctx.buffer.slice(idx + 1);
+          dispatchLine(line, ctx, peer);
         }
       });
 
       socket.on('close', () => {
-        activeSocket = null;
-        handleDisconnect();
+        clearTimeout(authTimer);
+        releaseIfActive(socket);
       });
 
       socket.on('error', () => {
-        activeSocket = null;
-        handleDisconnect();
+        clearTimeout(authTimer);
+        releaseIfActive(socket);
       });
     });
 
     tcpServer.on('error', (err) => {
       if (err.code === 'EADDRINUSE' && currentPort < TCP_PORT_MAX) {
+        try { tcpServer.close(); } catch (e) {}
         currentPort++;
         tryListen();
+        return;
+      }
+      if (mainWindow) {
+        mainWindow.webContents.send('server-error', String(err.code || err.message || 'listen-failed'));
       }
     });
 
-    tcpServer.listen(currentPort, '0.0.0.0', () => {
+    tcpServer.listen(currentPort, ip, () => {
       shareCode = generateCode(ip, currentPort);
       if (mainWindow) {
         mainWindow.webContents.send('code-ready', shareCode);
@@ -148,7 +258,15 @@ function handleMessage(line, socket) {
     handleStopShare();
   } else if (line.startsWith('SIGNAL:')) {
     // Forward WebRTC signaling to display window
-    const payload = line.slice(7);
+    const rawPayload = line.slice(7);
+    if (rawPayload.length === 0 || rawPayload.length > MAX_PENDING_SIGNAL_BYTES) {
+      return;
+    }
+    const sanitized = captureGuard.sanitizeSignal(rawPayload);
+    if (!sanitized.ok) {
+      return;
+    }
+    const payload = sanitized.payload;
     if (!displayWindow) {
       // Display window was closed (e.g. after STOP) -> re-open for new share
       openDisplayWindow();
@@ -158,9 +276,24 @@ function handleMessage(line, socket) {
       displayWindow.webContents.send('rtc-signal', payload);
     } else {
       // Queue messages until display window is ready
-      pendingSignals.push(payload);
+      while (pendingSignals.length &&
+             (pendingSignals.length >= MAX_PENDING_SIGNALS ||
+              pendingSignalBytes + payload.length > MAX_PENDING_SIGNAL_BYTES)) {
+        pendingSignalBytes -= pendingSignals[0].length;
+        pendingSignals.shift();
+      }
+      if (payload.length <= MAX_PENDING_SIGNAL_BYTES) {
+        pendingSignals.push(payload);
+        pendingSignalBytes += payload.length;
+      }
     }
   }
+}
+
+function releaseIfActive(socket) {
+  if (activeSocket !== socket) return;
+  activeSocket = null;
+  handleDisconnect();
 }
 
 function handleStopShare() {
@@ -170,6 +303,7 @@ function handleStopShare() {
   }
   displayWindowReady = false;
   pendingSignals = [];
+  pendingSignalBytes = 0;
   if (mainWindow) {
     mainWindow.show();
     mainWindow.setFullScreen(true);
@@ -190,8 +324,15 @@ function handleDisconnect() {
 }
 
 function sendSignal(payload) {
-  if (activeSocket) {
-    activeSocket.write('SIGNAL:' + payload + '\n');
+  const socket = activeSocket;
+  if (!socket || socket.destroyed === true || socket.writable !== true) return false;
+  if (typeof payload !== 'string') return false;
+  if (payload.indexOf('\n') >= 0 || payload.indexOf('\r') >= 0) return false;
+  try {
+    socket.write('SIGNAL:' + payload + '\n');
+    return true;
+  } catch (e) {
+    return false;
   }
 }
 
@@ -224,6 +365,7 @@ function createMainWindow() {
 function openDisplayWindow() {
   displayWindowReady = false;
   pendingSignals = [];
+  pendingSignalBytes = 0;
   displayWindow = new BrowserWindow({
     fullscreen: true,
     autoHideMenuBar: true,
@@ -245,6 +387,7 @@ function openDisplayWindow() {
       displayWindow.webContents.send('rtc-signal', payload);
     }
     pendingSignals = [];
+  pendingSignalBytes = 0;
   });
 
   displayWindow.on('closed', () => {

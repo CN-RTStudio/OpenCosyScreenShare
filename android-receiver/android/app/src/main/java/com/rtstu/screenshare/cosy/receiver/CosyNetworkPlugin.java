@@ -31,6 +31,7 @@ public class CosyNetworkPlugin extends Plugin {
     private static final int DISCOVERY_PORT = 30001;
     private static final int SDK_VERSION = 3;
     private static final String APP_VERSION = "1.0.0-beta.4";
+    private static final int SOCKET_READ_TIMEOUT_MS = 45 * 1000;
 
     private ServerSocket tcpServer = null;
     private Thread serverThread = null;
@@ -151,12 +152,18 @@ public class CosyNetworkPlugin extends Plugin {
         activeSocket = socket;
 
         try {
+            socket.setSoTimeout(SOCKET_READ_TIMEOUT_MS);
+            socket.setTcpNoDelay(true);
             socketOut = socket.getOutputStream();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            BoundedLineReader reader = new BoundedLineReader(socket.getInputStream(), PeerProtocol.MAX_SIGNAL_BYTES);
 
             String line;
             while (running && (line = reader.readLine()) != null) {
                 line = line.trim();
+                if (!PeerProtocol.isAcceptable(line)) {
+                    Log.i("CosyLog", "非法行被丢弃");
+                    continue;
+                }
                 handleMessage(line);
             }
         } catch (Exception e) {
@@ -167,7 +174,8 @@ public class CosyNetworkPlugin extends Plugin {
 
     private void handleMessage(String line) {
         Log.i("CosyLog", "收到消息: " + line);
-        if (line.equals("INIT")) {
+        PeerProtocol.Kind kind = PeerProtocol.classify(line);
+        if (kind == PeerProtocol.Kind.INIT) {
             try {
                 socketOut.write("STATUS:0\n".getBytes());
                 socketOut.flush();
@@ -175,24 +183,28 @@ public class CosyNetworkPlugin extends Plugin {
             } catch (Exception e) {
                 Log.e("CosyLog", "回复 STATUS 失败", e);
             }
-        } else if (line.equals("INFO")) {
+        } else if (kind == PeerProtocol.Kind.INFO) {
             try {
-                String response = "INFO:" + SDK_VERSION + "|" + APP_VERSION + "|android\n";
+                String response = PeerProtocol.infoReply(SDK_VERSION, APP_VERSION, "android");
                 socketOut.write(response.getBytes());
                 socketOut.flush();
                 Log.i("CosyLog", "已回复 INFO: " + response.trim());
             } catch (Exception e) {
                 Log.e("CosyLog", "回复 INFO 失败", e);
             }
-        } else if (line.equals("CONNECTED")) {
+        } else if (kind == PeerProtocol.Kind.CONNECTED) {
             Log.i("CosyLog", "收到 CONNECTED, 通知前端");
             notifyConnectionStatus(true);
-        } else if (line.equals("STOP")) {
+        } else if (kind == PeerProtocol.Kind.STOP) {
             // 发送端停止投屏但保持 TCP 连接 -> 通知前端回到等待页面
             Log.i("CosyLog", "收到 STOP, 通知前端回到等待页面");
             notifyStopShare();
-        } else if (line.startsWith("SIGNAL:")) {
-            String payload = line.substring(7);
+        } else if (kind == PeerProtocol.Kind.SIGNAL) {
+            String payload = PeerProtocol.signalPayload(line);
+            if (payload == null) {
+                Log.i("CosyLog", "SIGNAL 载荷越界被拒绝");
+                return;
+            }
             Log.i("CosyLog", "收到 SIGNAL, 转发给前端");
             JSObject data = new JSObject();
             data.put("payload", payload);
@@ -249,11 +261,20 @@ public class CosyNetworkPlugin extends Plugin {
 
     private String generateCode(String ip, int port) {
         String[] parts = ip.split("\\.");
+        if (parts.length != 4) return "";
         StringBuilder sb = new StringBuilder();
         for (int i = 0; i < parts.length; i++) {
+            int octet;
+            try {
+                octet = Integer.parseInt(parts[i], 10);
+            } catch (NumberFormatException e) {
+                return "";
+            }
+            if (octet < 0 || octet > 255) return "";
             if (i > 0) sb.append("-");
-            sb.append(Integer.toHexString(Integer.parseInt(parts[i])));
+            sb.append(Integer.toHexString(octet));
         }
+        if (port < 1 || port > 65535) return "";
         sb.append("-").append(Integer.toHexString(port));
         return sb.toString();
     }

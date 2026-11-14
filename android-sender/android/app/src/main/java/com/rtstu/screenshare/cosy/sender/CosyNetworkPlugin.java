@@ -139,7 +139,7 @@ public class CosyNetworkPlugin extends Plugin {
                 clientSocket.setSoTimeout(READ_TIMEOUT_MS);
 
                 socketOut = clientSocket.getOutputStream();
-                final BufferedReader reader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+                final BoundedLineReader reader = new BoundedLineReader(clientSocket.getInputStream());
 
                 Log.i(TAG, "TCP 已连接到 " + ip + ":" + port);
 
@@ -799,11 +799,15 @@ public class CosyNetworkPlugin extends Plugin {
 
     // ==================== TCP 接收线程 ====================
 
-    private void startReceiverThread(final BufferedReader reader) {
+    private void startReceiverThread(final BoundedLineReader reader) {
         receiverThread = new Thread(() -> {
             try {
                 String line;
                 while (running && (line = reader.readLine()) != null) {
+            if (line.length() > BoundedLineReader.DEFAULT_MAX_LINE_BYTES) {
+                Log.i("CosyLog", "超长控制行被拒绝");
+                break;
+            }
                     line = line.trim();
                     nativeLog("TCP 收到: " + (line.length() > 80 ? line.substring(0, 80) + "..." : line));
                     if (line.startsWith("SIGNAL:")) {

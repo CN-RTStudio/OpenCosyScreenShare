@@ -10,13 +10,14 @@ import com.getcapacitor.PluginCall;
 import com.getcapacitor.PluginMethod;
 import com.getcapacitor.annotation.CapacitorPlugin;
 
-import java.io.BufferedReader;
-import java.io.InputStreamReader;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.net.InetSocketAddress;
 import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
@@ -31,6 +32,9 @@ public class CosyNetworkPlugin extends Plugin {
     private static final int DISCOVERY_PORT = 30001;
     private static final int SDK_VERSION = 3;
     private static final String APP_VERSION = "1.0.0-beta.4";
+    private static final int READ_TIMEOUT_MS = 20000;
+    private static final int MAX_LINE_CHARS = 4096;
+    private static final int MAX_SIGNAL_CHARS = 1024;
 
     private ServerSocket tcpServer = null;
     private Thread serverThread = null;
@@ -51,7 +55,9 @@ public class CosyNetworkPlugin extends Plugin {
                 int currentPort = TCP_PORT;
                 while (currentPort <= TCP_PORT_MAX) {
                     try {
-                        tcpServer = new ServerSocket(currentPort);
+                        tcpServer = new ServerSocket();
+                        tcpServer.setReuseAddress(true);
+                        tcpServer.bind(new InetSocketAddress(currentPort), 8);
                         Log.i("CosyLog", "TCP 服务已启动, 端口: " + currentPort);
                         break;
                     } catch (java.net.BindException e) {
@@ -143,7 +149,7 @@ public class CosyNetworkPlugin extends Plugin {
     }
 
     private void handleClient(Socket socket) {
-        if (activeSocket != null) {
+        if (activeSocket != null || !isPrivatePeer(socket)) {
             try { socket.close(); } catch (Exception e) {}
             return;
         }
@@ -151,11 +157,12 @@ public class CosyNetworkPlugin extends Plugin {
         activeSocket = socket;
 
         try {
+            socket.setSoTimeout(READ_TIMEOUT_MS);
             socketOut = socket.getOutputStream();
-            BufferedReader reader = new BufferedReader(new InputStreamReader(socket.getInputStream()));
+            InputStream in = socket.getInputStream();
 
             String line;
-            while (running && (line = reader.readLine()) != null) {
+            while (running && (line = readLineBounded(in)) != null) {
                 line = line.trim();
                 handleMessage(line);
             }
@@ -193,11 +200,31 @@ public class CosyNetworkPlugin extends Plugin {
             notifyStopShare();
         } else if (line.startsWith("SIGNAL:")) {
             String payload = line.substring(7);
+            if (payload.length() > MAX_SIGNAL_CHARS) payload = payload.substring(0, MAX_SIGNAL_CHARS);
+            payload = payload.replaceAll("\\p{Cntrl}", "");
             Log.i("CosyLog", "收到 SIGNAL, 转发给前端");
             JSObject data = new JSObject();
             data.put("payload", payload);
             notifyListeners("signal", data);
         }
+    }
+
+    private String readLineBounded(InputStream in) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        int c;
+        while ((c = in.read()) != -1) {
+            if (c == '\n') return sb.toString();
+            if (c == '\r') continue;
+            if (sb.length() >= MAX_LINE_CHARS) return null;
+            sb.append((char) c);
+        }
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
+    private boolean isPrivatePeer(Socket socket) {
+        InetAddress addr = socket.getInetAddress();
+        if (addr == null) return false;
+        return addr.isSiteLocalAddress() || addr.isLinkLocalAddress() || addr.isLoopbackAddress();
     }
 
     private void notifyConnectionStatus(boolean connected) {

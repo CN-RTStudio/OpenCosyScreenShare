@@ -139,7 +139,7 @@ public class CosyNetworkPlugin extends Plugin {
                 clientSocket.setSoTimeout(READ_TIMEOUT_MS);
 
                 socketOut = clientSocket.getOutputStream();
-                final BufferedReader reader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+                final BoundedLineReader reader = new BoundedLineReader(clientSocket.getInputStream());
 
                 Log.i(TAG, "TCP 已连接到 " + ip + ":" + port);
 
@@ -384,12 +384,15 @@ public class CosyNetworkPlugin extends Plugin {
             Point size = new Point();
             wm.getDefaultDisplay().getRealSize(size);
             DisplayMetrics metrics = getContext().getResources().getDisplayMetrics();
-            int width = size.x;
-            int height = size.y;
+            Point captureSize = CaptureGuard.clampSize(size);
+            int width = captureSize.x;
+            int height = captureSize.y;
             int density = metrics.densityDpi;
+            int frameRate = CaptureGuard.clampFrameRate(30);
 
-            nativeLog("屏幕尺寸: " + width + "x" + height + " density=" + density);
-            videoCapturer.startCapture(width, height, 30);
+            nativeLog("屏幕尺寸: " + size.x + "x" + size.y + " -> 采集 " + width + "x" + height
+                    + " fps=" + frameRate + " density=" + density);
+            videoCapturer.startCapture(width, height, frameRate);
             nativeLog("startCapture 已调用");
 
             // 创建 VideoTrack 并用 addTrack + streamIds (Unified Plan 下 addStream 会 abort)
@@ -799,11 +802,15 @@ public class CosyNetworkPlugin extends Plugin {
 
     // ==================== TCP 接收线程 ====================
 
-    private void startReceiverThread(final BufferedReader reader) {
+    private void startReceiverThread(final BoundedLineReader reader) {
         receiverThread = new Thread(() -> {
             try {
                 String line;
                 while (running && (line = reader.readLine()) != null) {
+            if (line.length() > BoundedLineReader.DEFAULT_MAX_LINE_BYTES) {
+                Log.i("CosyLog", "超长控制行被拒绝");
+                break;
+            }
                     line = line.trim();
                     nativeLog("TCP 收到: " + (line.length() > 80 ? line.substring(0, 80) + "..." : line));
                     if (line.startsWith("SIGNAL:")) {

@@ -3,6 +3,7 @@ const dgram = require('dgram');
 const net = require('net');
 const path = require('path');
 const os = require('os');
+const guard = require('../sharingguard');
 
 const TCP_PORT = 25555;
 const TCP_PORT_MAX = 25565;
@@ -18,6 +19,7 @@ let pendingSignals = [];
 let tcpServer = null;
 let activeSocket = null;
 let shareCode = '';
+let localIp = '';
 
 // ---- UDP discovery: get local LAN IP via broadcast ----
 function discoverLocalIp() {
@@ -80,36 +82,104 @@ function generateCode(ip, port) {
 }
 
 // ---- TCP server: handle handshake + signaling ----
+function isLocalPeer(peer) {
+  if (!peer) return false;
+  const interfaces = os.networkInterfaces();
+  for (const name of Object.keys(interfaces)) {
+    for (const iface of interfaces[name]) {
+      if (iface.family !== 'IPv4' || iface.internal) continue;
+      if (guard.sameSubnet(peer, iface.address, 24)) return true;
+    }
+  }
+  return false;
+}
+
+function dispatchLine(line, ctx, peer) {
+  if (line.length > guard.MAX_CONTROL_BYTES) {
+    ctx.failed = true;
+    try { ctx.socket.destroy(); } catch (e) {}
+    return;
+  }
+  if (!ctx.admitted) {
+    if (!line.startsWith('AUTH:')) {
+      ctx.failed = true;
+      try { ctx.socket.destroy(); } catch (e) {}
+      return;
+    }
+    if (!isLocalPeer(peer)) {
+      ctx.failed = true;
+      try { ctx.socket.destroy(); } catch (e) {}
+      return;
+    }
+    const admitted = guard.admitConnection(peer, localIp, shareCode, line.slice(5), ctx.state);
+    if (!admitted.ok) {
+      ctx.failed = true;
+      try { ctx.socket.destroy(); } catch (e) {}
+      return;
+    }
+    if (activeSocket && activeSocket !== ctx.socket) {
+      ctx.failed = true;
+      try { ctx.socket.destroy(); } catch (e) {}
+      return;
+    }
+    ctx.admitted = true;
+    activeSocket = ctx.socket;
+    ctx.socket.write('AUTH:OK\n');
+    return;
+  }
+  const allowed = guard.admitMessage(ctx.state, Date.now(), guard.FRAME_KIND.CONTROL);
+  if (!allowed.ok) {
+    ctx.failed = true;
+    try { ctx.socket.destroy(); } catch (e) {}
+    return;
+  }
+  handleMessage(line, ctx.socket);
+}
+
 function startTcpServer(ip) {
+  localIp = ip;
   let currentPort = TCP_PORT;
 
   function tryListen() {
     tcpServer = net.createServer((socket) => {
-      if (activeSocket) {
-        socket.end();
-        return;
-      }
-      activeSocket = socket;
-      let buffer = '';
+      const peer = String(socket.remoteAddress || '').replace(/^::ffff:/, '');
+      const ctx = {
+        socket,
+        peer,
+        state: guard.createSessionState(Date.now()),
+        admitted: false,
+        failed: false,
+        buffer: ''
+      };
 
       socket.on('data', (data) => {
-        buffer += data.toString();
+        if (ctx.failed) return;
+        ctx.buffer += data.toString();
+        if (ctx.buffer.length > guard.MAX_CONTROL_BYTES) {
+          ctx.failed = true;
+          try { socket.destroy(); } catch (e) {}
+          return;
+        }
         let idx;
-        while ((idx = buffer.indexOf('\n')) !== -1) {
-          const line = buffer.slice(0, idx).trim();
-          buffer = buffer.slice(idx + 1);
-          handleMessage(line, socket);
+        while (!ctx.failed && (idx = ctx.buffer.indexOf('\n')) !== -1) {
+          const line = ctx.buffer.slice(0, idx).trim();
+          ctx.buffer = ctx.buffer.slice(idx + 1);
+          dispatchLine(line, ctx, peer);
         }
       });
 
       socket.on('close', () => {
-        activeSocket = null;
-        handleDisconnect();
+        if (activeSocket === socket) {
+          activeSocket = null;
+          handleDisconnect();
+        }
       });
 
       socket.on('error', () => {
-        activeSocket = null;
-        handleDisconnect();
+        if (activeSocket === socket) {
+          activeSocket = null;
+          handleDisconnect();
+        }
       });
     });
 

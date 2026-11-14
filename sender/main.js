@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain, Tray, Menu, nativeImage, desktopCapturer, session } = require('electron');
 const net = require('net');
 const path = require('path');
+const { MAX_CONTROL_BYTES } = require('../sharingguard');
 
 const MIN_SDK_VERSION = 2;
 
@@ -34,26 +35,41 @@ function parseCode(code) {
 }
 
 // ---- Connect handshake + info exchange ----
-function connectToReceiver(ip, port) {
+function connectToReceiver(ip, port, code) {
   return new Promise((resolve, reject) => {
     const socket = new net.Socket();
     let buffer = '';
     let settled = false;
+    let initiated = false;
 
     socket.setTimeout(5000);
 
     socket.on('connect', () => {
-      socket.write('INIT\n');
+      socket.write('AUTH:' + code + '\n');
     });
 
     socket.on('data', (data) => {
       buffer += data.toString();
+      if (buffer.length > MAX_CONTROL_BYTES) {
+        buffer = '';
+        if (!settled) {
+          settled = true;
+          socket.destroy();
+          reject(new Error('Receiver sent an oversize control frame'));
+        } else {
+          socket.destroy();
+        }
+        return;
+      }
       let idx;
       while ((idx = buffer.indexOf('\n')) !== -1) {
         const line = buffer.slice(0, idx).trim();
         buffer = buffer.slice(idx + 1);
 
-        if (line.startsWith('STATUS:')) {
+        if (line === 'AUTH:OK' && !initiated) {
+          initiated = true;
+          socket.write('INIT\n');
+        } else if (line.startsWith('STATUS:')) {
           const status = parseInt(line.slice(7), 10);
           if (status === 0) {
             socket.write('CONNECTED\n');
@@ -247,7 +263,7 @@ ipcMain.on('connect', (event, code) => {
 
   receiverIp = target.ip;
 
-  connectToReceiver(target.ip, target.port)
+  connectToReceiver(target.ip, target.port, code)
     .then((info) => {
       event.reply('connect-result', { ok: true, info: info });
     })

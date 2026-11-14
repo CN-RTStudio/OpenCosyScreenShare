@@ -52,6 +52,8 @@ import org.webrtc.VideoSource;
 import org.webrtc.VideoTrack;
 
 import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
@@ -71,6 +73,7 @@ public class CosyNetworkPlugin extends Plugin {
     private static final int MIN_SDK_VERSION = 2;
     private static final int CONNECT_TIMEOUT_MS = 5000;
     private static final int READ_TIMEOUT_MS = 5000;
+    private static final int MAX_LINE_CHARS = 4096;
 
     // ---- TCP ----
     private Socket clientSocket = null;
@@ -139,7 +142,7 @@ public class CosyNetworkPlugin extends Plugin {
                 clientSocket.setSoTimeout(READ_TIMEOUT_MS);
 
                 socketOut = clientSocket.getOutputStream();
-                final BufferedReader reader = new BufferedReader(new InputStreamReader(clientSocket.getInputStream()));
+                final InputStream in = clientSocket.getInputStream();
 
                 Log.i(TAG, "TCP 已连接到 " + ip + ":" + port);
 
@@ -149,7 +152,7 @@ public class CosyNetworkPlugin extends Plugin {
                 Log.i(TAG, "已发送 INIT");
 
                 // Step 2: STATUS:0
-                String line = reader.readLine();
+                String line = readLineBounded(in);
                 if (line == null) {
                     call.reject("连接已关闭 (STATUS 阶段)");
                     cleanupConnection();
@@ -219,7 +222,7 @@ public class CosyNetworkPlugin extends Plugin {
                 clientSocket.setSoTimeout(0);
 
                 // 启动接收线程 (信令路由)
-                startReceiverThread(reader);
+                startReceiverThread(in);
 
                 JSObject ret = new JSObject();
                 ret.put("sdk", sdk);
@@ -799,11 +802,23 @@ public class CosyNetworkPlugin extends Plugin {
 
     // ==================== TCP 接收线程 ====================
 
-    private void startReceiverThread(final BufferedReader reader) {
+    private String readLineBounded(InputStream in) throws IOException {
+        StringBuilder sb = new StringBuilder();
+        int c;
+        while ((c = in.read()) != -1) {
+            if (c == '\n') return sb.toString();
+            if (c == '\r') continue;
+            if (sb.length() >= MAX_LINE_CHARS) return null;
+            sb.append((char) c);
+        }
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
+    private void startReceiverThread(final InputStream in) {
         receiverThread = new Thread(() -> {
             try {
                 String line;
-                while (running && (line = reader.readLine()) != null) {
+                while (running && (line = readLineBounded(in)) != null) {
                     line = line.trim();
                     nativeLog("TCP 收到: " + (line.length() > 80 ? line.substring(0, 80) + "..." : line));
                     if (line.startsWith("SIGNAL:")) {
